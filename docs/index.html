@@ -165,10 +165,11 @@
       <div class="paginador" id="paginador"></div></section>
     <section id="v-mapa" class="oculto"><div id="mapa"></div>
       <p class="nota"><strong>Color:</strong>
-        <span style="color:#c8324b">rojo</span> = brecha negativa (se pide menos
-        de lo que predice el modelo) ·
-        <span style="color:#1e9650">verde</span> = brecha positiva (se pide más).
-        La escala se acota a ±60 %.</p>
+        <span style="color:#1e9650;font-weight:700">verde</span> = mayor descuento
+        respecto de lo que predice el modelo ·
+        <span style="color:#d69e2e;font-weight:700">ámbar</span> = intermedio ·
+        <span style="color:#c8324b;font-weight:700">rojo</span> = menor descuento.
+        <span id="rango-color"></span></p>
       <p class="nota" id="nota-mapa"></p></section>
     <section id="v-metodo" class="oculto"><div id="metodo"></div></section>
     <section id="v-tabla" class="oculto"><div class="tabla-env"><table id="tabla">
@@ -307,13 +308,26 @@ function pintarMapa(d) {
   }
   if (capa) mapa.removeLayer(capa);
   const puntos = d.filter(a => a.lat && a.lon).slice(0, 1500);
+
+  // Rampa relativa a lo que hay en pantalla. Casi todo lo publicado tiene
+  // brecha negativa, así que una escala fija centrada en 0 pintaría todo del
+  // mismo color: los extremos se toman de los datos visibles (percentiles 5 y
+  // 95 para que un outlier no aplaste la escala).
+  const brechas = puntos.map(a => a.brecha_pct).sort((x, y) => x - y);
+  const q = f => brechas.length ? brechas[Math.floor((brechas.length - 1) * f)] : 0;
+  const mejor = q(0.05), peor = q(0.95);   // mejor = más descuento (más negativa)
+
+  const rampa = t => {                      // 0 = peor (rojo) … 1 = mejor (verde)
+    const hitos = [[200, 50, 60], [214, 158, 46], [30, 150, 80]];
+    const i = t < 0.5 ? 0 : 1, k = t < 0.5 ? t * 2 : (t - 0.5) * 2;
+    const [a1, b1] = [hitos[i], hitos[i + 1]];
+    return `rgb(${a1.map((v, j) => Math.round(v + (b1[j] - v) * k)).join(",")})`;
+  };
+
   capa = L.layerGroup(puntos.map(a => {
-    // Color por brecha: roja la negativa, verde la positiva, acotada a ±60 %
-    // para que los extremos no aplasten la escala.
-    const b = Math.min(60, Math.max(-60, a.brecha_pct)) / 60;   // −1 … +1
-    const color = b < 0
-      ? `rgb(${Math.round(200 + 40 * (1 + b))},${Math.round(40 + 110 * (1 + b))},50)`
-      : `rgb(${Math.round(190 - 160 * b)},${Math.round(150 + 30 * b)},70)`;
+    const t = peor === mejor ? 0.5
+            : Math.min(1, Math.max(0, (peor - a.brecha_pct) / (peor - mejor)));
+    const color = rampa(t);
     return L.circleMarker([a.lat, a.lon], {
       radius: 5, color, fillColor: color, fillOpacity: .7, weight: 1
     }).bindPopup(`<strong>${usd(a.precio_usd)}</strong> · ${a.m2} m²<br>
@@ -325,6 +339,11 @@ function pintarMapa(d) {
   if (puntos.length) {
     mapa.fitBounds(L.latLngBounds(puntos.map(a => [a.lat, a.lon])), {padding: [30, 30]});
   }
+  const rango = $("#rango-color");
+  if (rango) rango.textContent = puntos.length
+    ? `En esta selección la escala va de ${mejor.toFixed(0)} % (verde) a `
+      + `${peor.toFixed(0)} % (rojo); se reajusta con cada filtro.` : "";
+
   const imp = puntos.filter(a => a.geo_imputada).length;
   $("#nota-mapa").textContent = imp
     ? `${imp} de ${puntos.length} avisos no traen coordenada propia: se ubican en el `
