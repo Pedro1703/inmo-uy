@@ -71,6 +71,19 @@
   .vacio{padding:40px;text-align:center;color:var(--suave);background:var(--panel);
          border:1px solid var(--borde);border-radius:10px}
   .oculto{display:none}
+  .doc{background:var(--panel);border:1px solid var(--borde);border-radius:10px;
+       padding:22px 26px;max-width:78ch;line-height:1.62}
+  .doc h2{font-size:1.05rem;margin:26px 0 8px;letter-spacing:-.01em}
+  .doc h2:first-child{margin-top:0}
+  .doc p{margin:9px 0}
+  .doc code{background:var(--fondo);padding:1px 5px;border-radius:4px;font-size:.87em}
+  .doc pre{background:var(--fondo);padding:13px 15px;border-radius:8px;overflow-x:auto;
+           font-size:.82rem;border:1px solid var(--borde)}
+  .doc table{font-size:.85rem;margin:10px 0;background:transparent}
+  .doc td,.doc th{border-bottom:1px solid var(--borde);padding:5px 9px}
+  .doc td:first-child,.doc th:first-child{text-align:left}
+  .doc .aviso{background:rgba(200,120,0,.10);border-left:3px solid var(--ambar);
+              padding:11px 15px;border-radius:0 8px 8px 0;margin:14px 0}
   @media (max-width:880px){
     .envoltorio{flex-direction:column}
     aside{width:100%;flex:none;position:static}
@@ -138,6 +151,7 @@
       <button role="tab" data-vista="feed" aria-selected="true">Feed</button>
       <button role="tab" data-vista="mapa" aria-selected="false">Mapa</button>
       <button role="tab" data-vista="tabla" aria-selected="false">Tabla</button>
+      <button role="tab" data-vista="metodo" aria-selected="false">Cómo se calcula</button>
       <span style="flex:1"></span>
       <select id="orden" style="width:auto">
         <option value="score">Ordenar: score</option>
@@ -150,7 +164,13 @@
     <section id="v-feed"><div class="grilla" id="grilla"></div>
       <div class="paginador" id="paginador"></div></section>
     <section id="v-mapa" class="oculto"><div id="mapa"></div>
+      <p class="nota"><strong>Color:</strong>
+        <span style="color:#c8324b">rojo</span> = brecha negativa (se pide menos
+        de lo que predice el modelo) ·
+        <span style="color:#1e9650">verde</span> = brecha positiva (se pide más).
+        La escala se acota a ±60 %.</p>
       <p class="nota" id="nota-mapa"></p></section>
+    <section id="v-metodo" class="oculto"><div id="metodo"></div></section>
     <section id="v-tabla" class="oculto"><div class="tabla-env"><table id="tabla">
       <thead></thead><tbody></tbody></table></div></section>
 
@@ -288,8 +308,12 @@ function pintarMapa(d) {
   if (capa) mapa.removeLayer(capa);
   const puntos = d.filter(a => a.lat && a.lon).slice(0, 1500);
   capa = L.layerGroup(puntos.map(a => {
-    const t = Math.min(1, Math.max(0, (a.score - 70) / 30));
-    const color = `rgb(${Math.round(230 - 150 * t)},${Math.round(70 + 110 * t)},70)`;
+    // Color por brecha: roja la negativa, verde la positiva, acotada a ±60 %
+    // para que los extremos no aplasten la escala.
+    const b = Math.min(60, Math.max(-60, a.brecha_pct)) / 60;   // −1 … +1
+    const color = b < 0
+      ? `rgb(${Math.round(200 + 40 * (1 + b))},${Math.round(40 + 110 * (1 + b))},50)`
+      : `rgb(${Math.round(190 - 160 * b)},${Math.round(150 + 30 * b)},70)`;
     return L.circleMarker([a.lat, a.lon], {
       radius: 5, color, fillColor: color, fillOpacity: .7, weight: 1
     }).bindPopup(`<strong>${usd(a.precio_usd)}</strong> · ${a.m2} m²<br>
@@ -328,11 +352,135 @@ function pintarTabla(d) {
   });
 }
 
+const NOMBRES = {
+  "np.log(m2)": "Superficie edificada (log)",
+  "np.log1p(m2_terreno)": "Superficie del terreno (log)",
+  "falta_terreno": "No informa terreno",
+  "dormitorios": "Dormitorios",
+  "banos": "Baños",
+  "garaje": "Garaje",
+  "piso": "Piso",
+  "antiguedad": "Antigüedad (años)",
+  "vista_mar[T.True]": "Vista al mar",
+  "C(tipo)[T.Casa]": "Es casa (vs. apartamento)",
+  "falta_antiguedad": "No informa antigüedad",
+  "falta_piso": "No informa piso",
+};
+
+function efecto(k, v) {
+  if (k.startsWith("np.log")) return `elasticidad ${v >= 0 ? "+" : ""}${v.toFixed(3)}`;
+  const p = (Math.exp(v) - 1) * 100;
+  return `${p >= 0 ? "+" : ""}${p.toFixed(1)} % por unidad`;
+}
+
+function pintarMetodo() {
+  const m = META.modelo || {};
+  const segs = Object.keys(m).sort();
+  if (!segs.length) { $("#metodo").innerHTML = '<div class="vacio">Sin datos del modelo.</div>'; return; }
+
+  const tablaSeg = `<table><tr><th>Segmento</th><th>Avisos</th><th>R²</th><th>Barrios</th></tr>` +
+    segs.map(k => `<tr><td>${k}</td><td>${m[k].n.toLocaleString("es-UY")}</td>
+      <td>${m[k].r2.toFixed(3)}</td><td>${m[k].barrios}</td></tr>`).join("") + `</table>`;
+
+  const ref = m["montevideo · vivienda"] || m[segs[0]];
+  const refNombre = m["montevideo · vivienda"] ? "montevideo · vivienda" : segs[0];
+  const coefs = Object.entries(ref.coeficientes)
+    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+  const tablaCoef = `<table><tr><th>Variable</th><th>Coeficiente</th><th>Efecto sobre el precio</th></tr>` +
+    coefs.map(([k, v]) => `<tr><td>${NOMBRES[k] || k}</td>
+      <td>${v >= 0 ? "+" : ""}${v.toFixed(4)}</td><td>${efecto(k, v)}</td></tr>`).join("") + `</table>`;
+
+  const fe = Object.entries(ref.efectos_barrio || {}).sort((a, b) => b[1] - a[1]);
+  const filasFE = n => fe.slice(0, n).map(([k, v]) =>
+    `<tr><td>${k.replace(/^[a-z_]+ · /, "")}</td><td>${v >= 0 ? "+" : ""}${v.toFixed(3)}</td></tr>`).join("");
+  const filasFEbaj = n => fe.slice(-n).map(([k, v]) =>
+    `<tr><td>${k.replace(/^[a-z_]+ · /, "")}</td><td>${v >= 0 ? "+" : ""}${v.toFixed(3)}</td></tr>`).join("");
+
+  $("#metodo").innerHTML = `<div class="doc">
+    <h2>La idea</h2>
+    <p>El precio por m² solo no distingue una oportunidad de un apartamento
+    chico, viejo y sin garaje. Así que se estima cuánto <em>debería</em> valer
+    cada inmueble dados sus propios atributos y su ubicación, y se mira la
+    diferencia contra lo que se pide.</p>
+
+    <h2>La ecuación</h2>
+    <pre>log(precio) ~ log(m² edificados) + log(1 + m² terreno)
+              + dormitorios + baños + garaje + piso + antigüedad
+              + vista al mar + tipo + efectos fijos de barrio</pre>
+    <p>Es una regresión log-log estimada por mínimos cuadrados. Se ajusta
+    <strong>una por segmento de mercado</strong>, porque la estructura de precios
+    de Punta del Este no tiene nada que ver con la de Montevideo.</p>
+    ${tablaSeg}
+
+    <h2>Qué vale cada atributo</h2>
+    <p>Coeficientes reales del ajuste de <code>${refNombre}</code>
+    (${ref.n.toLocaleString("es-UY")} avisos, R² ${ref.r2.toFixed(3)}), ordenados
+    por peso:</p>
+    ${tablaCoef}
+    <p>Dos que parecen raros y no lo son. <strong>Dormitorios da negativo</strong>
+    porque el efecto se mide <em>a superficie constante</em>: partir los mismos
+    m² en más ambientes los hace más chicos y baja el valor; el tamaño ya entra
+    por su cuenta. Y la <strong>elasticidad de la superficie es menor a 1</strong>,
+    o sea que duplicar los metros no duplica el precio: hay rendimientos
+    decrecientes, como en el mercado real.</p>
+
+    <h2>Y cuánto pesa el barrio</h2>
+    <p>Cada barrio con suficientes comparables tiene su propio efecto fijo. Los
+    valores están en logaritmos: +0,70 significa aproximadamente el doble de
+    precio que el barrio de referencia, a igualdad de todo lo demás.</p>
+    <div style="display:flex;gap:26px;flex-wrap:wrap">
+      <table><tr><th>Los más caros</th><th></th></tr>${filasFE(6)}</table>
+      <table><tr><th>Los más baratos</th><th></th></tr>${filasFEbaj(6)}</table>
+    </div>
+
+    <h2>De ahí sale la brecha</h2>
+    <pre>brecha % = precio pedido / precio estimado − 1</pre>
+    <p>Negativa quiere decir que se pide menos de lo que predicen sus atributos.
+    El <strong>score</strong> es el percentil de esa diferencia dentro del
+    segmento: 100 es el mayor descuento del segmento. Es un ranking relativo, no
+    una medida absoluta.</p>
+
+    <h2>Qué queda afuera a propósito</h2>
+    <p>Un segmento se publica sólo si su R² supera 0,55. Los <strong>terrenos no
+    se puntúan</strong>: sus regresiones dan entre 0,15 y 0,55 porque el precio
+    depende de padrón, servicios, zonificación y metros de frente, y nada de eso
+    está en el aviso. Los departamentos del interior tampoco: con 20 a 170
+    avisos no hay comparables para estimar nada. En ambos casos se prefiere no
+    dar un número antes que dar uno inventado.</p>
+    <p>También se marcan y se pueden excluir las <strong>condiciones
+    especiales</strong>: propiedades con inquilino adentro, con saldo de ANV o
+    BHU, en pozo o en remate. Se abaratan por una razón legítima, no por ser una
+    oportunidad. Y las ventas de llave —donde se vende el negocio y no el
+    inmueble— se sacan del modelo directamente.</p>
+
+    <h2>Lo que el modelo no ve</h2>
+    <div class="aviso">Ve lo que el aviso publica: no ve estado de conservación,
+    orientación, calidad de construcción, ruido, ni si el precio ya tiene una
+    reserva. Una brecha muy grande —del orden de −70 %— casi nunca es una ganga:
+    suele ser un m² mal tipeado, un precio en pesos publicado como dólares, o una
+    casa cuyo campo de superficie repite la del padrón en vez de lo edificado.
+    El rango más accionable suele estar entre −20 % y −40 % con confianza alta.</div>
+    <p>La <strong>confianza</strong> indica cuántos comparables sostienen la
+    estimación de esa zona: alta ≥100 avisos, media ≥30. Por debajo, o cuando la
+    superficie cae fuera del rango con soporte, baja a <em>baja</em>.</p>
+
+    <h2>De dónde salen los datos</h2>
+    <p>Del stock en venta publicado en InfoCasas, releído entero cada semana.
+    MercadoLibre quedó afuera: medimos sobre 1.002 avisos suyos que ~72 % ya está
+    en InfoCasas, y su aporte incremental (~16 %) son casi todos avisos de esa
+    misma semana que aparecen acá pocos días después.</p>
+    <p>Los precios son de <strong>oferta</strong>, no de transacción: es lo que
+    se pide, no lo que se termina pagando. La brecha típica entre uno y otro en
+    el mercado uruguayo se estima en 5-10 %.</p>
+  </div>`;
+}
+
 function render() {
   const d = ordenar(filtrar());
   pintarMetricas(d);
   if (vista === "feed") pintarFeed(d);
   else if (vista === "mapa") pintarMapa(d);
+  else if (vista === "metodo") pintarMetodo();
   else pintarTabla(d);
 }
 
@@ -341,7 +489,7 @@ document.querySelectorAll(".pestanas button").forEach(b => {
     vista = b.dataset.vista;
     document.querySelectorAll(".pestanas button").forEach(x =>
       x.setAttribute("aria-selected", x === b));
-    ["feed", "mapa", "tabla"].forEach(v =>
+    ["feed", "mapa", "tabla", "metodo"].forEach(v =>
       $("#v-" + v).classList.toggle("oculto", v !== vista));
     render();
   };

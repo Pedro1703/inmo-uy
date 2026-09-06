@@ -19,6 +19,7 @@ alcanzan masa crítica y quedan explícitamente sin puntuar.
 Viviendas y terrenos se modelan por separado: un terreno no tiene dormitorios.
 """
 
+import json
 import os
 import sys
 import warnings
@@ -31,6 +32,10 @@ import config
 
 warnings.filterwarnings("ignore")
 AQUI = os.path.dirname(os.path.abspath(__file__))
+
+# Diagnósticos de cada ajuste, para que el sitio pueda mostrar cómo se
+# calcula el modelo en vez de pedir que se confíe en el número.
+DIAGNOSTICOS = {}
 
 REGRESORES_VIVIENDA = [
     # m2 es la superficie EDIFICADA; el padrón entra aparte porque una casa de
@@ -122,6 +127,22 @@ def estimar(df, regresores, etiqueta):
               f"< {config.MIN_R2} → sin puntuar (el modelo no explica el precio)")
         return None
 
+    DIAGNOSTICOS[etiqueta] = {
+        "n": int(ajuste.nobs),
+        "r2": round(float(ajuste.rsquared), 4),
+        "barrios": int(df.barrio_fe.nunique()),
+        "coeficientes": {
+            nombre: round(float(valor), 4)
+            for nombre, valor in ajuste.params.items()
+            if not nombre.startswith("C(barrio") and nombre != "Intercept"
+        },
+        "efectos_barrio": {
+            nombre.split("[T.")[1].rstrip("]"): round(float(valor), 4)
+            for nombre, valor in ajuste.params.items()
+            if nombre.startswith("C(barrio")
+        },
+    }
+
     df["residual"] = ajuste.resid
     df["precio_esperado"] = np.exp(ajuste.fittedvalues)
     df["precio_m2_esperado"] = df.precio_esperado / df.m2
@@ -197,6 +218,10 @@ def main():
 
     salida = ruta(config.SCORED)
     out.to_parquet(salida, index=False)
+
+    diag = ruta("data/clean/diagnosticos.json")
+    with open(diag, "w", encoding="utf-8") as fh:
+        json.dump(DIAGNOSTICOS, fh, ensure_ascii=False, indent=1)
 
     print(f"\nAvisos puntuados: {len(out):,}")
     print("\nTop 10 oportunidades (score más alto):")

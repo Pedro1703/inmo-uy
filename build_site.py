@@ -47,8 +47,15 @@ def exportar_datos():
     d["lon"] = d.lon.round(5)
 
     registros = d[COLUMNAS].to_dict(orient="records")
+    diag_path = os.path.join(AQUI, "data", "clean", "diagnosticos.json")
+    diagnosticos = {}
+    if os.path.exists(diag_path):
+        with open(diag_path, encoding="utf-8") as fh:
+            diagnosticos = json.load(fh)
+
     meta = {
         "actualizado": date.today().isoformat(),
+        "modelo": diagnosticos,
         "total_analizados": int(len(scored)),
         "publicados": len(registros),
         "departamentos": sorted(d.departamento.dropna().unique().tolist()),
