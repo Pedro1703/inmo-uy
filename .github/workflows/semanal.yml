@@ -35,7 +35,7 @@ jobs:
       - name: Instalar dependencias
         # Playwright sólo hace falta para el radar de MercadoLibre, que es
         # manual: acá se instala todo lo demás.
-        run: pip install requests pandas numpy statsmodels pyarrow
+        run: pip install requests pandas numpy statsmodels pyarrow certifi
 
       - name: Recolectar InfoCasas
         run: |

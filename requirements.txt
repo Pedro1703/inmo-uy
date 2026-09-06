@@ -6,3 +6,4 @@ pyarrow>=15
 streamlit>=1.36
 pydeck>=0.9
 playwright>=1.40
+certifi

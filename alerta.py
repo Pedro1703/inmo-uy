@@ -31,13 +31,18 @@ AQUI = os.path.dirname(os.path.abspath(__file__))
 HISTORICO = os.path.join(AQUI, "data", "historico_ids.json")
 SITIO = "https://pedro1703.github.io/inmo-uy/"
 
-# Qué se considera digno de un email. El límite de abajo es tan importante como
-# el de arriba: una brecha de −75 % casi nunca es una ganga, es un m² mal
-# tipeado, un precio en pesos publicado como dólares, o una casa cuyo "m2"
-# repite la superficie del padrón. Mandar esos avisos todas las semanas es la
-# forma más rápida de que dejes de abrir el email.
-BRECHA_RANGO = (-50.0, -15.0)
+# Descuento mínimo para entrar en el email. Sin piso: manda las mayores brechas
+# primero, incluidas las extremas.
+BRECHA_MAX = -15.0
 TOPE_EMAIL = 12
+
+# Sección aparte, por interés temático: acá no se exige descuento ni confianza
+# alta, entra todo lo que mencione estos términos.
+INTERES = {
+    "nombre": "Residenciales y casas de salud",
+    "patron": r"residencial|casa de salud|casas de salud",
+}
+TOPE_INTERES = 10
 
 
 def cargar_historico():
@@ -61,7 +66,7 @@ def seleccionar(scored, previos):
     buenos = scored[
         (scored.confianza == "alta")
         & (scored.condicion_especial == 0)
-        & scored.brecha_pct.between(*BRECHA_RANGO)
+        & (scored.brecha_pct <= BRECHA_MAX)
     ]
     if previos is None:            # primera corrida: no hay con qué comparar
         return buenos.nsmallest(TOPE_EMAIL, "brecha_pct"), True
@@ -69,26 +74,22 @@ def seleccionar(scored, previos):
     return nuevos.nsmallest(TOPE_EMAIL, "brecha_pct"), False
 
 
-def html_email(sel, scored, primera):
-    hoy = date.today().isoformat()
-    intro = ("Primera corrida: te mando las mejores oportunidades del momento. "
-             "Desde la semana que viene vas a recibir sólo lo que aparezca nuevo."
-             if primera else
-             "Estas son las oportunidades que <strong>aparecieron esta semana</strong> "
-             "y no estaban antes.")
+def seleccionar_interes(scored, previos):
+    """Avisos que mencionan los términos de INTERES, sin filtro de descuento."""
+    texto = (scored.titulo.fillna("") + " " + scored.descripcion.fillna("")).str.lower()
+    hit = scored[texto.str.contains(INTERES["patron"], regex=True, na=False)]
+    if previos is not None:
+        hit = hit[~hit.id.isin(previos)]
+    return hit.nsmallest(TOPE_INTERES, "brecha_pct")
 
-    if sel.empty:
-        cuerpo = """<p style="font-size:15px">Esta semana no apareció ninguna
-        oportunidad que cumpla los criterios (descuento de entre 15 % y 50 %
-        respecto del modelo, barrio con comparables suficientes y sin
-        condiciones especiales).</p>
-        <p style="font-size:15px">El robot corrió bien: simplemente no hubo nada
-        que valga la pena mostrarte.</p>"""
-    else:
-        filas = []
-        for _, r in sel.iterrows():
-            img = r.imagen if isinstance(r.imagen, str) and r.imagen.startswith("http") else ""
-            filas.append(f"""
+
+def bloque_avisos(sel):
+    """Tarjetas del email, compartidas por las dos secciones."""
+    filas = []
+    for _, r in sel.iterrows():
+        img = r.imagen if isinstance(r.imagen, str) and r.imagen.startswith("http") else ""
+        color = "#1b8a4b" if r.brecha_pct <= -15 else "#6b6b6b"
+        filas.append(f"""
 <tr><td style="padding:0 0 16px">
   <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e2e2de;border-radius:10px;overflow:hidden">
     <tr>
@@ -98,7 +99,7 @@ def html_email(sel, scored, primera):
       <td valign="top" style="padding:11px 14px;font-family:-apple-system,Helvetica,Arial,sans-serif">
         <div style="font-size:17px;font-weight:700;color:#1a1a1a">
           USD {r.precio_usd:,.0f}
-          <span style="background:#1b8a4b;color:#fff;font-size:12px;padding:2px 8px;
+          <span style="background:{color};color:#fff;font-size:12px;padding:2px 8px;
                        border-radius:20px;margin-left:6px">{r.brecha_pct:+.0f}%</span></div>
         <div style="font-size:13px;color:#6b6b6b;margin:3px 0">{r.barrio} · {r.departamento}</div>
         <div style="font-size:13px;color:#1a1a1a">{r.m2:.0f} m² · {r.dormitorios:.0f} dorm ·
@@ -110,8 +111,36 @@ def html_email(sel, scored, primera):
       </td>
     </tr>
   </table></td></tr>""")
-        cuerpo = f"""<p style="font-size:15px">{intro}</p>
-        <table width="100%" cellpadding="0" cellspacing="0">{''.join(filas)}</table>"""
+    return f'<table width="100%" cellpadding="0" cellspacing="0">{"".join(filas)}</table>'
+
+
+def html_email(sel, scored, primera, interes=None):
+    hoy = date.today().isoformat()
+    intro = ("Primera corrida: te mando las mejores oportunidades del momento. "
+             "Desde la semana que viene vas a recibir sólo lo que aparezca nuevo."
+             if primera else
+             "Estas son las oportunidades que <strong>aparecieron esta semana</strong> "
+             "y no estaban antes.")
+
+    if sel.empty:
+        cuerpo = """<p style="font-size:15px">Esta semana no apareció ninguna
+        oportunidad que cumpla los criterios (descuento de al menos 15 %
+        respecto del modelo, barrio con comparables suficientes y sin
+        condiciones especiales).</p>
+        <p style="font-size:15px">El robot corrió bien: simplemente no hubo nada
+        que valga la pena mostrarte.</p>"""
+    else:
+        cuerpo = (f'<p style="font-size:15px">{intro}</p>' + bloque_avisos(sel))
+
+    # Sección temática, si hay algo que mostrar.
+    tema = ""
+    if interes is not None and not interes.empty:
+        tema = (f'<h2 style="font-size:16px;margin:26px 0 4px;padding-top:18px;'
+                f'border-top:1px solid #e2e2de">{INTERES["nombre"]}</h2>'
+                f'<p style="font-size:13px;color:#6b6b6b;margin:0 0 14px">'
+                f'{len(interes)} aviso(s) que mencionan estos términos. '
+                f'Acá no se filtra por descuento: entra todo lo que aparezca.</p>'
+                + bloque_avisos(interes))
 
     return f"""<!doctype html><html><body style="margin:0;padding:0;background:#f7f7f5">
 <table width="100%" cellpadding="0" cellspacing="0" style="background:#f7f7f5;padding:26px 12px">
@@ -124,6 +153,7 @@ def html_email(sel, scored, primera):
     <div style="color:#6b6b6b;font-size:13px;margin-bottom:18px">{hoy} ·
       {len(scored):,} avisos analizados</div>
     {cuerpo}
+    {tema}
     <div style="margin:22px 0 0;padding-top:16px;border-top:1px solid #e2e2de">
       <a href="{SITIO}" style="display:inline-block;background:#1a1a1a;color:#fff;
          padding:10px 18px;border-radius:8px;text-decoration:none;font-size:14px;
@@ -153,7 +183,15 @@ def enviar(html, asunto):
     msg.set_content("Este correo necesita un lector con HTML.")
     msg.add_alternative(html, subtype="html")
 
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=ssl.create_default_context()) as s:
+    # Python en macOS no lee el llavero del sistema: sin esto el handshake TLS
+    # falla con CERTIFICATE_VERIFY_FAILED. certifi funciona igual en Linux/CI.
+    try:
+        import certifi
+        contexto = ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        contexto = ssl.create_default_context()
+
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=contexto) as s:
         s.login(usuario, clave)
         s.send_message(msg)
     return destino
@@ -172,22 +210,30 @@ def main():
 
     previos = cargar_historico()
     sel, primera = seleccionar(scored, previos)
+    interes = seleccionar_interes(scored, previos)
     print(f"{len(scored):,} avisos analizados · "
           f"{'primera corrida' if primera else f'{len(previos):,} ya conocidos'}")
-    print(f"{len(sel)} para el email")
+    print(f"{len(sel)} para el email · {len(interes)} en «{INTERES['nombre']}»")
 
-    html = html_email(sel, scored, primera)
-    asunto = (f"{len(sel)} oportunidades nuevas · {date.today().isoformat()}"
-              if len(sel) else f"Sin novedades · {date.today().isoformat()}")
+    html = html_email(sel, scored, primera, interes)
+    hoy_txt = date.today().isoformat()
+    if len(sel) or len(interes):
+        extra = f" · {len(interes)} residenciales" if len(interes) else ""
+        asunto = f"{len(sel)} oportunidades nuevas{extra} · {hoy_txt}"
+    else:
+        asunto = f"Sin novedades · {hoy_txt}"
 
     if args.prueba:
         salida = os.path.join(AQUI, "data", "alerta_prueba.html")
         with open(salida, "w", encoding="utf-8") as fh:
             fh.write(html)
         print(f"→ {salida}  (no se envió nada)")
-        for _, r in sel.iterrows():
-            print(f"  {r.brecha_pct:+6.1f}% | USD {r.precio_usd:>9,.0f} | "
-                  f"{r.m2:>4.0f} m² | {r.barrio}")
+        for etiqueta, grupo in [("oportunidades", sel), (INTERES["nombre"], interes)]:
+            if not grupo.empty:
+                print(f"  — {etiqueta}:")
+                for _, r in grupo.iterrows():
+                    print(f"    {r.brecha_pct:+6.1f}% | USD {r.precio_usd:>9,.0f} | "
+                          f"{r.m2:>4.0f} m² | {r.barrio}")
         return
 
     destino = enviar(html, asunto)
