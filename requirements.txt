@@ -1,0 +1,8 @@
+requests>=2.32
+pandas>=2.2
+numpy>=1.26
+statsmodels>=0.14
+pyarrow>=15
+streamlit>=1.36
+pydeck>=0.9
+playwright>=1.40

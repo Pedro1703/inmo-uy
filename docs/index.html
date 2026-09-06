@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Oportunidades inmobiliarias · Uruguay</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root{
+    --fondo:#f7f7f5; --panel:#fff; --texto:#1a1a1a; --suave:#6b6b6b;
+    --borde:#e2e2de; --verde:#1b8a4b; --ambar:#b7791f; --acento:#1a1a1a;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --fondo:#131315; --panel:#1c1c1f; --texto:#ececec; --suave:#9a9a9a;
+           --borde:#2e2e33; --verde:#3aa66a; --ambar:#d69e2e; --acento:#ececec; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--fondo);color:var(--texto);
+       font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
+  header{padding:22px 20px 14px;border-bottom:1px solid var(--borde);background:var(--panel)}
+  h1{margin:0 0 4px;font-size:1.4rem;letter-spacing:-.02em}
+  .sub{color:var(--suave);font-size:.87rem;max-width:70ch}
+  .envoltorio{display:flex;gap:18px;align-items:flex-start;padding:18px 20px;
+              max-width:1500px;margin:0 auto}
+  aside{width:250px;flex:0 0 250px;position:sticky;top:14px;background:var(--panel);
+        border:1px solid var(--borde);border-radius:10px;padding:14px}
+  main{flex:1;min-width:0}
+  label{display:block;font-size:.76rem;text-transform:uppercase;letter-spacing:.04em;
+        color:var(--suave);margin:12px 0 4px;font-weight:600}
+  select,input{width:100%;padding:7px 9px;border:1px solid var(--borde);border-radius:7px;
+               background:var(--fondo);color:var(--texto);font-size:.9rem;font-family:inherit}
+  select[multiple]{height:112px}
+  .fila{display:flex;gap:7px}
+  .metricas{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));
+            gap:10px;margin-bottom:16px}
+  .metrica{background:var(--panel);border:1px solid var(--borde);border-radius:10px;padding:11px 13px}
+  .metrica .n{font-size:1.3rem;font-weight:700;letter-spacing:-.02em}
+  .metrica .e{font-size:.73rem;color:var(--suave);text-transform:uppercase;letter-spacing:.04em}
+  .pestanas{display:flex;gap:5px;margin-bottom:14px;flex-wrap:wrap}
+  .pestanas button{padding:7px 15px;border:1px solid var(--borde);background:var(--panel);
+                   color:var(--texto);border-radius:7px;cursor:pointer;font-size:.88rem;font-family:inherit}
+  .pestanas button[aria-selected="true"]{background:var(--acento);color:var(--fondo);border-color:var(--acento)}
+  .grilla{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:14px}
+  .tarjeta{background:var(--panel);border:1px solid var(--borde);border-radius:10px;
+           overflow:hidden;display:flex;flex-direction:column}
+  .tarjeta img{width:100%;height:158px;object-fit:cover;background:var(--borde);display:block}
+  .cuerpo{padding:10px 12px 12px;display:flex;flex-direction:column;gap:3px;flex:1}
+  .precio{font-size:1.12rem;font-weight:700;letter-spacing:-.02em}
+  .brecha{display:inline-block;padding:2px 7px;border-radius:20px;font-size:.72rem;
+          font-weight:700;color:#fff;background:var(--verde);vertical-align:2px;margin-left:5px}
+  .brecha.tibia{background:var(--ambar)}
+  .zona{font-size:.83rem;color:var(--suave)}
+  .datos{font-size:.8rem}
+  .tit{font-size:.79rem;color:var(--suave);display:-webkit-box;-webkit-line-clamp:2;
+       -webkit-box-orient:vertical;overflow:hidden;margin-top:3px}
+  .cond{display:inline-block;font-size:.68rem;padding:1px 6px;border-radius:4px;
+        background:rgba(200,120,0,.18);color:var(--ambar);margin-top:4px;align-self:flex-start}
+  .tarjeta a.ver{margin-top:auto;padding-top:8px;font-size:.83rem;color:inherit;font-weight:600}
+  table{width:100%;border-collapse:collapse;font-size:.85rem;background:var(--panel)}
+  th,td{padding:7px 9px;text-align:right;border-bottom:1px solid var(--borde);white-space:nowrap}
+  th:first-child,td:first-child,th:nth-child(8),td:nth-child(8){text-align:left}
+  th{position:sticky;top:0;background:var(--panel);font-size:.73rem;text-transform:uppercase;
+     letter-spacing:.04em;color:var(--suave);cursor:pointer;user-select:none}
+  .tabla-env{max-height:600px;overflow:auto;border:1px solid var(--borde);border-radius:10px}
+  #mapa{height:600px;border-radius:10px;border:1px solid var(--borde);z-index:1}
+  .paginador{display:flex;gap:8px;align-items:center;justify-content:center;margin:18px 0 6px}
+  .paginador button{padding:6px 13px;border:1px solid var(--borde);background:var(--panel);
+                    color:var(--texto);border-radius:7px;cursor:pointer;font-family:inherit}
+  .paginador button:disabled{opacity:.4;cursor:default}
+  .nota{font-size:.8rem;color:var(--suave);margin:14px 0 0;max-width:80ch}
+  .vacio{padding:40px;text-align:center;color:var(--suave);background:var(--panel);
+         border:1px solid var(--borde);border-radius:10px}
+  .oculto{display:none}
+  @media (max-width:880px){
+    .envoltorio{flex-direction:column}
+    aside{width:100%;flex:none;position:static}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Oportunidades inmobiliarias · Uruguay</h1>
+  <p class="sub">El score compara cada aviso con lo que <strong>sus propios
+  atributos</strong> predicen —m² edificados, terreno, dormitorios, baños,
+  garaje, piso, antigüedad, vista y barrio—, no con el promedio del barrio.
+  Score alto = se pide menos de lo esperado. <span id="meta"></span></p>
+</header>
+
+<div class="envoltorio">
+  <aside>
+    <label for="f-depto">Departamento</label>
+    <select id="f-depto" multiple></select>
+
+    <label for="f-tipo">Tipo</label>
+    <select id="f-tipo" multiple></select>
+
+    <label for="f-barrio">Barrio</label>
+    <select id="f-barrio" multiple></select>
+
+    <label for="f-incluir">Debe contener</label>
+    <input id="f-incluir" type="search" placeholder="reciclado, azotea">
+
+    <label for="f-excluir">No debe contener</label>
+    <input id="f-excluir" type="search" placeholder="permuta">
+
+    <label>Precio USD</label>
+    <div class="fila">
+      <input id="f-pmin" type="number" placeholder="mín" step="5000">
+      <input id="f-pmax" type="number" placeholder="máx" step="5000">
+    </div>
+
+    <label for="f-dorm">Dormitorios (mínimo)</label>
+    <select id="f-dorm">
+      <option value="0">cualquiera</option><option>1</option><option>2</option>
+      <option>3</option><option>4</option><option>5</option>
+    </select>
+
+    <label for="f-score">Score mínimo: <span id="f-score-val">80</span></label>
+    <input id="f-score" type="range" min="0" max="100" value="80">
+
+    <label for="f-conf">Confianza de la zona</label>
+    <select id="f-conf" multiple>
+      <option value="alta" selected>alta</option>
+      <option value="media" selected>media</option>
+      <option value="baja">baja</option>
+    </select>
+
+    <label style="text-transform:none;font-size:.83rem;margin-top:14px">
+      <input type="checkbox" id="f-especial" checked style="width:auto;margin-right:6px">
+      Excluir condiciones especiales
+    </label>
+  </aside>
+
+  <main>
+    <div class="metricas" id="metricas"></div>
+
+    <div class="pestanas" role="tablist">
+      <button role="tab" data-vista="feed" aria-selected="true">Feed</button>
+      <button role="tab" data-vista="mapa" aria-selected="false">Mapa</button>
+      <button role="tab" data-vista="tabla" aria-selected="false">Tabla</button>
+      <span style="flex:1"></span>
+      <select id="orden" style="width:auto">
+        <option value="score">Ordenar: score</option>
+        <option value="brecha_pct">Ordenar: brecha</option>
+        <option value="precio_usd">Ordenar: precio</option>
+        <option value="precio_m2">Ordenar: precio/m²</option>
+      </select>
+    </div>
+
+    <section id="v-feed"><div class="grilla" id="grilla"></div>
+      <div class="paginador" id="paginador"></div></section>
+    <section id="v-mapa" class="oculto"><div id="mapa"></div>
+      <p class="nota" id="nota-mapa"></p></section>
+    <section id="v-tabla" class="oculto"><div class="tabla-env"><table id="tabla">
+      <thead></thead><tbody></tbody></table></div></section>
+
+    <p class="nota">Las oportunidades son candidatas a visitar, no decisiones de
+    compra: el modelo ve atributos publicados, no estado de conservación,
+    orientación ni calidad de construcción. Una brecha muy grande suele indicar
+    un dato mal cargado o algo que el aviso no cuenta. Verificá siempre el aviso
+    original.</p>
+  </main>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+let AVISOS = [], META = {}, vista = "feed", pagina = 1, mapa = null, capa = null;
+const POR_PAGINA = 24;
+
+const usd = n => "USD " + Math.round(n).toLocaleString("es-UY");
+const pct = n => (n >= 0 ? "+" : "") + n.toFixed(0) + "%";
+
+function opciones(sel, valores, marcados) {
+  sel.innerHTML = valores.map(v =>
+    `<option value="${v}"${marcados && marcados.includes(v) ? " selected" : ""}>${v}</option>`
+  ).join("");
+}
+
+function seleccionados(sel) {
+  return [...sel.selectedOptions].map(o => o.value);
+}
+
+function filtrar() {
+  const dep = seleccionados($("#f-depto"));
+  const tip = seleccionados($("#f-tipo"));
+  const bar = seleccionados($("#f-barrio"));
+  const con = seleccionados($("#f-conf"));
+  const inc = $("#f-incluir").value.trim().toLowerCase();
+  const exc = $("#f-excluir").value.trim().toLowerCase();
+  const pmin = parseFloat($("#f-pmin").value) || 0;
+  const pmax = parseFloat($("#f-pmax").value) || Infinity;
+  const dorm = parseInt($("#f-dorm").value) || 0;
+  const smin = parseFloat($("#f-score").value);
+  const sinEsp = $("#f-especial").checked;
+
+  // "a, b" = cualquiera (O)   ·   "a b" = todas (Y)
+  const incTerms = inc ? (inc.includes(",") ? inc.split(",") : inc.split(/\s+/))
+                       .map(t => t.trim()).filter(Boolean) : [];
+  const incAlguna = inc.includes(",");
+  const excTerms = exc ? exc.split(/[,\s]+/).map(t => t.trim()).filter(Boolean) : [];
+
+  return AVISOS.filter(a => {
+    if (dep.length && !dep.includes(a.departamento)) return false;
+    if (tip.length && !tip.includes(a.tipo)) return false;
+    if (bar.length && !bar.includes(a.barrio)) return false;
+    if (con.length && !con.includes(a.confianza)) return false;
+    if (a.precio_usd < pmin || a.precio_usd > pmax) return false;
+    if (dorm && a.dormitorios < dorm) return false;
+    if (a.score < smin) return false;
+    if (sinEsp && a.condicion) return false;
+    if (incTerms.length || excTerms.length) {
+      const txt = (a.titulo + " " + a.descripcion).toLowerCase();
+      if (incTerms.length) {
+        const ok = incAlguna ? incTerms.some(t => txt.includes(t))
+                             : incTerms.every(t => txt.includes(t));
+        if (!ok) return false;
+      }
+      if (excTerms.some(t => txt.includes(t))) return false;
+    }
+    return true;
+  });
+}
+
+function ordenar(lista) {
+  const k = $("#orden").value;
+  const desc = k === "score";
+  return [...lista].sort((a, b) => desc ? b[k] - a[k] : a[k] - b[k]);
+}
+
+function mediana(nums) {
+  if (!nums.length) return 0;
+  const s = [...nums].sort((a, b) => a - b);
+  return s[Math.floor(s.length / 2)];
+}
+
+function pintarMetricas(d) {
+  $("#metricas").innerHTML = [
+    ["Oportunidades", d.length.toLocaleString("es-UY")],
+    ["Precio mediano", usd(mediana(d.map(a => a.precio_usd)))],
+    ["Precio/m² mediano", usd(mediana(d.map(a => a.precio_m2)))],
+    ["Brecha mediana", pct(mediana(d.map(a => a.brecha_pct)))],
+  ].map(([e, n]) => `<div class="metrica"><div class="n">${n}</div>
+      <div class="e">${e}</div></div>`).join("");
+}
+
+function pintarFeed(d) {
+  const paginas = Math.max(1, Math.ceil(d.length / POR_PAGINA));
+  if (pagina > paginas) pagina = 1;
+  const trozo = d.slice((pagina - 1) * POR_PAGINA, pagina * POR_PAGINA);
+  $("#grilla").innerHTML = trozo.length ? trozo.map(a => `
+    <article class="tarjeta">
+      <a href="${a.url}" target="_blank" rel="noopener">
+        <img loading="lazy" src="${a.imagen || ""}" alt="">
+      </a>
+      <div class="cuerpo">
+        <div class="precio">${usd(a.precio_usd)}
+          <span class="brecha${a.brecha_pct > -20 ? " tibia" : ""}">${pct(a.brecha_pct)}</span></div>
+        <div class="zona">${a.barrio} · ${a.departamento}</div>
+        <div class="datos">${a.m2} m² · ${a.dormitorios} dorm · ${a.banos} baños ·
+          ${Math.round(a.precio_m2).toLocaleString("es-UY")} USD/m²
+          <span style="opacity:.6">(esp. ${Math.round(a.precio_m2_esperado).toLocaleString("es-UY")})</span></div>
+        <div class="tit">${a.titulo}</div>
+        ${a.condicion ? `<span class="cond">⚠ ${a.condicion}</span>` : ""}
+        <a class="ver" href="${a.url}" target="_blank" rel="noopener">Ver aviso →</a>
+      </div>
+    </article>`).join("")
+    : `<div class="vacio">Ningún aviso cumple estos filtros.<br>
+       Bajá el score mínimo o ampliá la zona.</div>`;
+
+  $("#paginador").innerHTML = paginas > 1 ? `
+    <button id="ant" ${pagina === 1 ? "disabled" : ""}>← anterior</button>
+    <span>${pagina} de ${paginas}</span>
+    <button id="sig" ${pagina === paginas ? "disabled" : ""}>siguiente →</button>` : "";
+  if (paginas > 1) {
+    $("#ant").onclick = () => { pagina--; render(); window.scrollTo(0, 0); };
+    $("#sig").onclick = () => { pagina++; render(); window.scrollTo(0, 0); };
+  }
+}
+
+function pintarMapa(d) {
+  if (!mapa) {
+    mapa = L.map("mapa").setView([-34.9, -56.16], 12);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19, attribution: "© OpenStreetMap"
+    }).addTo(mapa);
+  }
+  if (capa) mapa.removeLayer(capa);
+  const puntos = d.filter(a => a.lat && a.lon).slice(0, 1500);
+  capa = L.layerGroup(puntos.map(a => {
+    const t = Math.min(1, Math.max(0, (a.score - 70) / 30));
+    const color = `rgb(${Math.round(230 - 150 * t)},${Math.round(70 + 110 * t)},70)`;
+    return L.circleMarker([a.lat, a.lon], {
+      radius: 5, color, fillColor: color, fillOpacity: .7, weight: 1
+    }).bindPopup(`<strong>${usd(a.precio_usd)}</strong> · ${a.m2} m²<br>
+      ${Math.round(a.precio_m2).toLocaleString("es-UY")} USD/m²
+      (esp. ${Math.round(a.precio_m2_esperado).toLocaleString("es-UY")})<br>
+      ${a.barrio} · brecha ${pct(a.brecha_pct)}<br>
+      <a href="${a.url}" target="_blank" rel="noopener">Abrir el aviso →</a>`);
+  })).addTo(mapa);
+  if (puntos.length) {
+    mapa.fitBounds(L.latLngBounds(puntos.map(a => [a.lat, a.lon])), {padding: [30, 30]});
+  }
+  const imp = puntos.filter(a => a.geo_imputada).length;
+  $("#nota-mapa").textContent = imp
+    ? `${imp} de ${puntos.length} avisos no traen coordenada propia: se ubican en el `
+      + `centro de su barrio. El score no depende de la coordenada, pero la posición es aproximada.`
+    : "";
+  setTimeout(() => mapa.invalidateSize(), 60);
+}
+
+const COLS = [["barrio","Barrio"],["precio_usd","Precio"],["m2","m²"],
+  ["precio_m2","USD/m²"],["precio_m2_esperado","Esperado"],["brecha_pct","Brecha"],
+  ["score","Score"],["titulo","Título"]];
+
+function pintarTabla(d) {
+  $("#tabla thead").innerHTML = "<tr>" + COLS.map(([k, e]) =>
+    `<th data-k="${k}">${e}</th>`).join("") + "</tr>";
+  $("#tabla tbody").innerHTML = d.slice(0, 500).map(a => `<tr>
+    <td>${a.barrio}</td><td>${usd(a.precio_usd)}</td><td>${a.m2}</td>
+    <td>${Math.round(a.precio_m2).toLocaleString("es-UY")}</td>
+    <td>${Math.round(a.precio_m2_esperado).toLocaleString("es-UY")}</td>
+    <td>${pct(a.brecha_pct)}</td><td>${a.score.toFixed(0)}</td>
+    <td><a href="${a.url}" target="_blank" rel="noopener">${a.titulo.slice(0, 60)}</a></td>
+  </tr>`).join("");
+  $("#tabla thead").querySelectorAll("th").forEach(th => {
+    th.onclick = () => { $("#orden").value = th.dataset.k; render(); };
+  });
+}
+
+function render() {
+  const d = ordenar(filtrar());
+  pintarMetricas(d);
+  if (vista === "feed") pintarFeed(d);
+  else if (vista === "mapa") pintarMapa(d);
+  else pintarTabla(d);
+}
+
+document.querySelectorAll(".pestanas button").forEach(b => {
+  b.onclick = () => {
+    vista = b.dataset.vista;
+    document.querySelectorAll(".pestanas button").forEach(x =>
+      x.setAttribute("aria-selected", x === b));
+    ["feed", "mapa", "tabla"].forEach(v =>
+      $("#v-" + v).classList.toggle("oculto", v !== vista));
+    render();
+  };
+});
+
+["#f-depto","#f-tipo","#f-barrio","#f-conf","#f-incluir","#f-excluir","#f-pmin",
+ "#f-pmax","#f-dorm","#f-especial","#orden"].forEach(s => {
+  $(s).addEventListener("input", () => { pagina = 1; render(); });
+});
+$("#f-score").addEventListener("input", e => {
+  $("#f-score-val").textContent = e.target.value;
+  pagina = 1; render();
+});
+
+fetch("data/oportunidades.json")
+  .then(r => r.json())
+  .then(j => {
+    AVISOS = j.avisos; META = j.meta;
+    opciones($("#f-depto"), META.departamentos, ["montevideo"]);
+    opciones($("#f-tipo"), META.tipos, META.tipos);
+    opciones($("#f-barrio"), META.barrios, []);
+    $("#meta").innerHTML = `<br>Actualizado el ${META.actualizado} ·
+      ${META.publicados.toLocaleString("es-UY")} avisos publicados de
+      ${META.total_analizados.toLocaleString("es-UY")} analizados.`;
+    render();
+  })
+  .catch(e => {
+    $("#metricas").innerHTML = `<div class="vacio">No se pudieron cargar los datos.<br>
+      <small>${e}</small></div>`;
+  });
+</script>
+</body>
+</html>

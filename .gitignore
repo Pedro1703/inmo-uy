@@ -1,0 +1,17 @@
+# Credenciales — nunca versionar
+.env
+*.secret
+
+# Datos crudos y derivados: se regeneran con collect.py y pesan cientos de MB
+data/raw/
+data/clean/
+data/meli/
+data/alerta_prueba.html
+
+# El sitio publicado y el histórico de la alerta SÍ van al repo
+!docs/
+!data/historico_ids.json
+
+__pycache__/
+*.pyc
+.DS_Store
